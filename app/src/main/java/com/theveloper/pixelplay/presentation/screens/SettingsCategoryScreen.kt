@@ -80,6 +80,9 @@ import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.Group
+import androidx.compose.material.icons.rounded.Terminal
+import androidx.compose.material.icons.rounded.TouchApp
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Restore
 import androidx.compose.material.icons.rounded.Science
@@ -1351,6 +1354,53 @@ fun SettingsCategoryScreen(
                                         settingsViewModel.resetSetupFlow()
                                     }
                                 )
+                                SettingsItem(
+                                    title = stringResource(R.string.settings_p2p_peers_title),
+                                    subtitle = stringResource(R.string.settings_p2p_peers_subtitle),
+                                    leadingIcon = { Icon(Icons.Rounded.Group, null, tint = MaterialTheme.colorScheme.secondary) },
+                                    trailingIcon = { Icon(Icons.Rounded.ChevronRight, stringResource(R.string.settings_cd_open), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+                                    onClick = { navController.navigateSafely(Screen.Peers.route) }
+                                )
+                                SettingsItem(
+                                    title = stringResource(R.string.settings_p2p_debug_log_title),
+                                    subtitle = stringResource(R.string.settings_p2p_debug_log_subtitle),
+                                    leadingIcon = { Icon(Icons.Rounded.Terminal, null, tint = MaterialTheme.colorScheme.tertiary) },
+                                    trailingIcon = { Icon(Icons.Rounded.ChevronRight, stringResource(R.string.settings_cd_open), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+                                    onClick = { navController.navigateSafely(Screen.P2pDebugLog.route) }
+                                )
+                                val peersViewModel: com.theveloper.pixelplay.presentation.peers.PeersViewModel = hiltViewModel()
+                                val p2pRemoteControlAllowed by peersViewModel.remoteControlAllowed.collectAsStateWithLifecycle()
+                                Row(
+                                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(10.dp))
+                                        .background(MaterialTheme.colorScheme.surfaceContainer)
+                                        .padding(16.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Rounded.TouchApp,
+                                        null,
+                                        tint = MaterialTheme.colorScheme.secondary,
+                                        modifier = Modifier.padding(end = 16.dp).size(24.dp)
+                                    )
+                                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                        Text(
+                                            text = stringResource(R.string.settings_p2p_remote_control_title),
+                                            style = MaterialTheme.typography.titleMedium,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Text(
+                                            text = stringResource(R.string.settings_p2p_remote_control_subtitle),
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    Switch(
+                                        checked = p2pRemoteControlAllowed,
+                                        onCheckedChange = { peersViewModel.setRemoteControlAllowed(it) }
+                                    )
+                                }
                             }
 
                             SettingsSubsection(title = stringResource(R.string.settings_maintenance_section)) {

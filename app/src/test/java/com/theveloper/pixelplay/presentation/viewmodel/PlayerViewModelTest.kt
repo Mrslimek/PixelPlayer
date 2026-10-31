@@ -228,6 +228,9 @@ class PlayerViewModelTest {
         // Initialize PlayerViewModel
         val sessionToken = mockk<SessionToken>(relaxed = true)
         mockMediaControllerFactory = mockk(relaxed = true)
+        val mockSessionTransportRouter = mockk<com.theveloper.pixelplay.data.p2p.SessionTransportRouter>(relaxed = true)
+        val mockSessionStateHolder = mockk<com.theveloper.pixelplay.data.p2p.SessionStateHolder>(relaxed = true)
+        val mockPeerProtocolEngine = mockk<com.theveloper.pixelplay.data.p2p.PeerProtocolEngine>(relaxed = true)
         
         // Mock ListenableFuture for MediaController creation
         mockController = mockk(relaxed = true)
@@ -316,7 +319,10 @@ class PlayerViewModelTest {
             playbackDispatchStateHolder,
             mediaControllerSyncStateHolder,
             sessionToken,
-            mockMediaControllerFactory
+            mockMediaControllerFactory,
+            mockSessionTransportRouter,
+            mockSessionStateHolder,
+            mockPeerProtocolEngine
         )
     }
 

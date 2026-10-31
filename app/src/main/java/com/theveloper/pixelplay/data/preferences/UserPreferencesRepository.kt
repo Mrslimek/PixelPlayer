@@ -138,6 +138,9 @@ class UserPreferencesRepository @Inject constructor(
         val FOLDER_BACK_GESTURE_NAVIGATION = booleanPreferencesKey("folder_back_gesture_navigation")
         val USE_SMOOTH_CORNERS = booleanPreferencesKey("use_smooth_corners")
         val KEEP_PLAYING_IN_BACKGROUND = booleanPreferencesKey("keep_playing_in_background")
+        val P2P_PRESENCE_ENABLED = booleanPreferencesKey("p2p_presence_enabled")
+        val P2P_REMOTE_CONTROL_ALLOWED = booleanPreferencesKey("p2p_remote_control_allowed")
+        val P2P_DEVICE_ID = stringPreferencesKey("p2p_device_id")
         val IS_CROSSFADE_ENABLED = booleanPreferencesKey("is_crossfade_enabled")
         val HI_FI_MODE_ENABLED = booleanPreferencesKey("hi_fi_mode_enabled")
         val CROSSFADE_DURATION = intPreferencesKey("crossfade_duration")
@@ -351,6 +354,29 @@ class UserPreferencesRepository @Inject constructor(
 
     val keepPlayingInBackgroundFlow: Flow<Boolean> =
         pref { it[PreferencesKeys.KEEP_PLAYING_IN_BACKGROUND] ?: true }
+
+    val p2pPresenceEnabledFlow: Flow<Boolean> =
+        pref { it[PreferencesKeys.P2P_PRESENCE_ENABLED] ?: false }
+
+    val p2pRemoteControlAllowedFlow: Flow<Boolean> =
+        pref { it[PreferencesKeys.P2P_REMOTE_CONTROL_ALLOWED] ?: true }
+
+    suspend fun setP2pRemoteControlAllowed(allowed: Boolean) {
+        dataStore.edit { it[PreferencesKeys.P2P_REMOTE_CONTROL_ALLOWED] = allowed }
+    }
+
+    suspend fun setP2pPresenceEnabled(enabled: Boolean) {
+        dataStore.edit { it[PreferencesKeys.P2P_PRESENCE_ENABLED] = enabled }
+    }
+
+    /** Persistent device id for the peer protocol (UUID v4 lowercase, created on first use). */
+    suspend fun ensureP2pDeviceId(): String? {
+        val existing = dataStore.data.first()[PreferencesKeys.P2P_DEVICE_ID]
+        if (!existing.isNullOrEmpty()) return existing
+        val created = java.util.UUID.randomUUID().toString()
+        dataStore.edit { it[PreferencesKeys.P2P_DEVICE_ID] = created }
+        return created
+    }
 
     suspend fun setKeepPlayingInBackground(enabled: Boolean) {
         dataStore.edit { it[PreferencesKeys.KEEP_PLAYING_IN_BACKGROUND] = enabled }

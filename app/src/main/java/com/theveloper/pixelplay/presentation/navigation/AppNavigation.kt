@@ -41,6 +41,8 @@ import com.theveloper.pixelplay.presentation.screens.DailyMixScreen
 import com.theveloper.pixelplay.presentation.screens.EditTransitionScreen
 import com.theveloper.pixelplay.presentation.screens.EasterEggScreen
 import com.theveloper.pixelplay.presentation.screens.ExperimentalSettingsScreen
+import com.theveloper.pixelplay.presentation.peers.PeersScreen
+import com.theveloper.pixelplay.presentation.peers.P2pDebugLogScreen
 import com.theveloper.pixelplay.presentation.screens.GenreDetailScreen
 import com.theveloper.pixelplay.presentation.screens.HomeScreen
 import com.theveloper.pixelplay.presentation.screens.LibraryScreen
@@ -273,6 +275,24 @@ fun AppNavigation(
                         navController = navController,
                         playerViewModel = playerViewModel,
                         onNavigationIconClick = { navController.popBackStack() }
+                    )
+                }
+            }
+            composable(
+                Screen.Peers.route,
+            ) {
+                ScreenWrapper(navController = navController, playerViewModel = playerViewModel, animatedVisibilityScope = this) {
+                    PeersScreen(
+                        onBackClick = { navController.popBackStack() }
+                    )
+                }
+            }
+            composable(
+                Screen.P2pDebugLog.route,
+            ) {
+                ScreenWrapper(navController = navController, playerViewModel = playerViewModel, animatedVisibilityScope = this) {
+                    P2pDebugLogScreen(
+                        onBackClick = { navController.popBackStack() }
                     )
                 }
             }

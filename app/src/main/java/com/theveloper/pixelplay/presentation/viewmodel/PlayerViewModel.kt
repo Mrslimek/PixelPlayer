@@ -92,6 +92,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
@@ -216,7 +217,10 @@ class PlayerViewModel @Inject constructor(
     private val playbackDispatchStateHolder: PlaybackDispatchStateHolder,
     private val mediaControllerSyncStateHolder: MediaControllerSyncStateHolder,
     private val sessionToken: SessionToken,
-    private val mediaControllerFactory: com.theveloper.pixelplay.data.media.MediaControllerFactory
+    private val mediaControllerFactory: com.theveloper.pixelplay.data.media.MediaControllerFactory,
+    private val sessionTransportRouter: com.theveloper.pixelplay.data.p2p.SessionTransportRouter,
+    private val sessionStateHolder: com.theveloper.pixelplay.data.p2p.SessionStateHolder,
+    private val peerProtocolEngine: com.theveloper.pixelplay.data.p2p.PeerProtocolEngine,
 ) : ViewModel() {
 
     private val _playerUiState = MutableStateFlow(PlayerUiState())
@@ -2441,18 +2445,80 @@ class PlayerViewModel @Inject constructor(
         playbackStateHolder.setSliderUiMounted(mounted)
     }
 
-    fun playPause() = playbackDispatchStateHolder.playPause()
+    fun playPause() {
+        // Shared-session routing (contract section 8): a connected remote stint receives
+        // `command` messages; DISABLED (unreachable/gone) is a deliberate no-op so a
+        // connectivity loss never silently switches the player to local transport.
+        when (sessionTransportRouter.transportMode()) {
+            com.theveloper.pixelplay.data.p2p.SessionTransportRouter.TransportMode.REMOTE ->
+                sessionTransportRouter.dispatchTogglePlayPause()
+            else -> playbackDispatchStateHolder.playPause()
+        }
+    }
 
     fun seekTo(position: Long) {
-        playbackStateHolder.seekTo(position)
+        when (sessionTransportRouter.transportMode()) {
+            com.theveloper.pixelplay.data.p2p.SessionTransportRouter.TransportMode.REMOTE ->
+                sessionTransportRouter.dispatchSeek(position / 1000.0)
+            else -> playbackStateHolder.seekTo(position)
+        }
     }
 
     fun nextSong() {
-        playbackStateHolder.nextSong()
+        when (sessionTransportRouter.transportMode()) {
+            com.theveloper.pixelplay.data.p2p.SessionTransportRouter.TransportMode.REMOTE ->
+                sessionTransportRouter.dispatchSkip(next = true)
+            else -> playbackStateHolder.nextSong()
+        }
     }
 
     fun previousSong() {
-        playbackStateHolder.previousSong()
+        when (sessionTransportRouter.transportMode()) {
+            com.theveloper.pixelplay.data.p2p.SessionTransportRouter.TransportMode.REMOTE ->
+                sessionTransportRouter.dispatchSkip(next = false)
+            else -> playbackStateHolder.previousSong()
+        }
+    }
+
+    /** Shared-session view (contract section 8) for the player surface. */
+    val p2pSessionState: StateFlow<com.theveloper.pixelplay.data.p2p.P2pSessionState> =
+        sessionStateHolder.state
+
+    /**
+     * PRESENTATION ESTIMATE ONLY: the remote stint's position extrapolated by wall clock
+     * while it plays. The authoritative (positionSec, updatedAtMs) lives untouched in
+     * [com.theveloper.pixelplay.data.p2p.SessionStateHolder].
+     */
+    @OptIn(kotlinx.coroutines.FlowPreview::class)
+    val sessionPositionEstimateMs: StateFlow<Long?> = sessionStateHolder.state
+        .flatMapLatest { state ->
+            val remote = state.source as? com.theveloper.pixelplay.data.p2p.SessionSource.Remote
+                ?: return@flatMapLatest kotlinx.coroutines.flow.flowOf(null)
+            kotlinx.coroutines.flow.flow<Long?> {
+                while (true) {
+                    val stint = remote.stint
+                    val elapsedMs = if (stint.status == com.theveloper.pixelplay.shared.p2p.P2pPlaybackStatus.PLAYING) {
+                        System.currentTimeMillis() - stint.updatedAtMs
+                    } else {
+                        0L
+                    }
+                    emit((stint.positionSec * 1000).toLong() + elapsedMs)
+                    kotlinx.coroutines.delay(500)
+                }
+            }
+        }
+        .stateIn(
+            viewModelScope,
+            kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5_000),
+            null,
+        )
+
+    /** Take-over affordance: resume the remote stint on THIS device from the local file. */
+    fun playHereFromSession() {
+        val peerId = (sessionStateHolder.state.value.source as? com.theveloper.pixelplay.data.p2p.SessionSource.Remote)?.peerId
+        if (peerId != null) {
+            viewModelScope.launch { peerProtocolEngine.playHere(peerId) }
+        }
     }
 
     private fun startProgressUpdates() {

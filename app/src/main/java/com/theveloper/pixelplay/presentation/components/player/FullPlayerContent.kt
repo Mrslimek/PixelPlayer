@@ -928,6 +928,21 @@ fun FullPlayerContent(
                     controlsSection = controlsSection
                 )
             }
+            // Shared-session representation (contract section 8): the player surface shows
+            // whose stint is active. LOCAL renders nothing here (today's player); remote,
+            // unreachable, gone, takeover-in-flight and conflicts are represented. Transport
+            // routing happens in PlayerViewModel (command dispatch vs local player).
+            val p2pSessionState by playerViewModel.p2pSessionState.collectAsStateWithLifecycle()
+            val sessionPositionEstimate by playerViewModel.sessionPositionEstimateMs.collectAsStateWithLifecycle()
+            com.theveloper.pixelplay.presentation.peers.SessionPlayerOverlay(
+                state = p2pSessionState,
+                positionEstimateMs = sessionPositionEstimate,
+                onPlayHere = { playerViewModel.playHereFromSession() },
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(paddingValues)
+                    .padding(top = 8.dp, start = 12.dp, end = 12.dp),
+            )
         }
     }
     AnimatedVisibility(

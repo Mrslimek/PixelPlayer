@@ -170,6 +170,8 @@ class MusicService : MediaLibraryService() {
     @Inject
     @AppScope
     lateinit var appScope: CoroutineScope
+    @Inject
+    lateinit var peerProtocolEngine: com.theveloper.pixelplay.data.p2p.PeerProtocolEngine
 
     // ReplayGain volume-normalization state + logic, extracted to a standalone
     // component. Lazily built so the Hilt-injected engine/replayGainManager and the
@@ -429,6 +431,9 @@ class MusicService : MediaLibraryService() {
 
         super.onCreate()
         listeningStatsTracker.initialize(appScope)
+        // P2P presence rides this mediaPlayback foreground service (dodges FGS start
+        // restrictions on targetSdk 37); it only runs when the user enabled the toggle.
+        peerProtocolEngine.onServiceCreated()
         
         // Ensure engine is ready (re-initialize if service was restarted)
         engine.initialize()
@@ -1493,6 +1498,7 @@ class MusicService : MediaLibraryService() {
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? = mediaSession
 
     override fun onDestroy() {
+        peerProtocolEngine.onServiceDestroyed()
         PlaybackActivityTracker.setPlaybackActive(false)
         listeningStatsTracker.finalizeCurrentSession(forceSynchronousPersistence = true)
         reportNavidromePlayback("stopped")

@@ -15,6 +15,10 @@ android {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
     }
+
+    testOptions {
+        unitTests.all { it.useJUnitPlatform() }
+    }
 }
 
 kotlin {
@@ -25,4 +29,9 @@ kotlin {
 
 dependencies {
     implementation(libs.kotlinx.serialization.json)
+    testImplementation(libs.junit.jupiter.api)
+    testImplementation(libs.junit.jupiter.params)
+    testRuntimeOnly(libs.junit.jupiter.engine)
+    testRuntimeOnly(libs.junitplatformlauncher)
+    testImplementation(kotlin("test"))
 }
