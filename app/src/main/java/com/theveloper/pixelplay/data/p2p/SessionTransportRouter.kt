@@ -60,4 +60,17 @@ class SessionTransportRouter @Inject constructor(
         engine.sendCommand(source.peerId, if (next) P2pCommandAction.NEXT else P2pCommandAction.PREVIOUS)
         return true
     }
+
+    /** Playback-mode commands (contract section 6, added 2026-11-02). Returns false when not remote. */
+    fun dispatchShuffle(enabled: Boolean): Boolean {
+        val source = remoteView() ?: return false
+        engine.sendCommand(source.peerId, if (enabled) P2pCommandAction.SHUFFLE_ON else P2pCommandAction.SHUFFLE_OFF)
+        return true
+    }
+
+    fun dispatchRepeat(action: P2pCommandAction): Boolean {
+        val source = remoteView() ?: return false
+        engine.sendCommand(source.peerId, action)
+        return true
+    }
 }

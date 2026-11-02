@@ -91,6 +91,12 @@ data class P2pStateUpdate(
     /** Optional shared-session field: UUID v4 of the continuous playback stint — fresh on
      *  every track start and takeover; kept across pause->resume of the same stint. */
     val playbackId: String? = null,
+    /** Optional playback-mode fields (added 2026-11-02): the sender's current queue modes.
+     *  Omitted = the peer does not report modes; invalid values decode to null (tolerant). */
+    @Serializable(with = TolerantBooleanSerializer::class)
+    val shuffle: Boolean? = null,
+    @Serializable(with = TolerantStringSerializer::class)
+    val repeat: String? = null,
 ) : PeerWireMessage
 
 @Serializable
@@ -130,7 +136,8 @@ data class P2pGoodbye(
     val reason: String = "",
 ) : PeerWireMessage
 
-/** Remote playback-control actions (contract section 6, optional v1 extension). */
+/** Remote playback-control actions (contract section 6, optional v1 extension).
+ *  repeat_* / shuffle_* added 2026-11-02 (playback-mode extension). */
 enum class P2pCommandAction(val wireValue: String) {
     PLAY("play"),
     PAUSE("pause"),
@@ -138,7 +145,12 @@ enum class P2pCommandAction(val wireValue: String) {
     STOP("stop"),
     SEEK("seek"),
     NEXT("next"),
-    PREVIOUS("previous");
+    PREVIOUS("previous"),
+    REPEAT_OFF("repeat_off"),
+    REPEAT_ALL("repeat_all"),
+    REPEAT_ONE("repeat_one"),
+    SHUFFLE_ON("shuffle_on"),
+    SHUFFLE_OFF("shuffle_off");
 
     val needsPosition: Boolean get() = this == SEEK
 
@@ -159,6 +171,18 @@ enum class P2pPlaybackStatus(val wireValue: String) {
     }
 }
 
+/** Repeat-mode wire values of the playback-mode extension (added 2026-11-02). */
+enum class P2pRepeatMode(val wireValue: String) {
+    OFF("off"),
+    ALL("all"),
+    ONE("one");
+
+    companion object {
+        fun fromWire(value: String?): P2pRepeatMode? =
+            entries.firstOrNull { it.wireValue == value?.trim()?.lowercase() }
+    }
+}
+
 /** Type-specific payload of a `state_update` frame (kept also as a standalone value object). */
 @Serializable
 data class P2pPeerPlaybackState(
@@ -170,4 +194,9 @@ data class P2pPeerPlaybackState(
     /** Optional shared-session fields (contract section 8). */
     val trackHash: String? = null,
     val playbackId: String? = null,
+    /** Optional playback-mode fields (contract section 6, added 2026-11-02). */
+    @Serializable(with = TolerantBooleanSerializer::class)
+    val shuffle: Boolean? = null,
+    @Serializable(with = TolerantStringSerializer::class)
+    val repeat: String? = null,
 )

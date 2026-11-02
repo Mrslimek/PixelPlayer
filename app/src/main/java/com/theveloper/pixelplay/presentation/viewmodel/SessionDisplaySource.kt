@@ -4,6 +4,7 @@ import timber.log.Timber
 import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.data.p2p.SessionSource
 import com.theveloper.pixelplay.shared.p2p.P2pPlaybackStatus
+import com.theveloper.pixelplay.shared.p2p.P2pRepeatMode
 
 /**
  * What the player surface should render for the current [SessionSource]. A null
@@ -71,6 +72,14 @@ internal class SessionDisplaySource(
 
     fun isSessionActive(source: SessionSource?): Boolean =
         source is SessionSource.Remote || source is SessionSource.TakeoverInFlight
+
+    /** The remote stint's shuffle mode; null when local/null source or the peer did not report it. */
+    fun shuffleMode(source: SessionSource?): Boolean? =
+        (source as? SessionSource.Remote)?.stint?.shuffle
+
+    /** The remote stint's repeat mode; null when local/null source or the peer did not report it. */
+    fun repeatMode(source: SessionSource?): P2pRepeatMode? =
+        (source as? SessionSource.Remote)?.stint?.repeat
 
     companion object {
         private const val TAG = "P2P"

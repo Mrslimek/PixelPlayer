@@ -5,6 +5,7 @@ import com.theveloper.pixelplay.data.p2p.SessionPeerReachability
 import com.theveloper.pixelplay.data.p2p.SessionSource
 import com.theveloper.pixelplay.data.p2p.StintSnapshot
 import com.theveloper.pixelplay.shared.p2p.P2pPlaybackStatus
+import com.theveloper.pixelplay.shared.p2p.P2pRepeatMode
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -242,5 +243,39 @@ class DisplaySourceSwapTest {
         // Prove nothing was cached under the miss: the resolver is still consulted.
         result = dbSong
         assertEquals(dbSong, source.resolveSong(request, localSong = null))
+    }
+
+    // ------------------------------------------------ session mode nullability rules
+
+    @Test
+    fun `session modes are null for local, takeover and unknown sources`() {
+        val source = SessionDisplaySource { null }
+
+        assertNull(source.shuffleMode(null))
+        assertNull(source.repeatMode(null))
+        assertNull(source.shuffleMode(SessionSource.Local(remoteStint(P2pPlaybackStatus.PLAYING).stint)))
+        assertNull(source.repeatMode(SessionSource.Local(remoteStint(P2pPlaybackStatus.PLAYING).stint)))
+        assertNull(
+            source.shuffleMode(
+                SessionSource.TakeoverInFlight("peer-a", "Phone", "hash-1", 0.0),
+            ),
+        )
+    }
+
+    @Test
+    fun `session modes follow the remote stint when reported`() {
+        val source = SessionDisplaySource { null }
+        val stint = remoteStint(P2pPlaybackStatus.PLAYING).stint.copy(shuffle = true, repeat = P2pRepeatMode.ALL)
+
+        assertEquals(true, source.shuffleMode(remoteStint(P2pPlaybackStatus.PLAYING).copy(stint = stint)))
+        assertEquals(P2pRepeatMode.ALL, source.repeatMode(remoteStint(P2pPlaybackStatus.PLAYING).copy(stint = stint)))
+    }
+
+    @Test
+    fun `session modes are null when the peer did not report them`() {
+        val source = SessionDisplaySource { null }
+
+        assertNull(source.shuffleMode(remoteStint(P2pPlaybackStatus.PLAYING)))
+        assertNull(source.repeatMode(remoteStint(P2pPlaybackStatus.PLAYING)))
     }
 }

@@ -38,6 +38,7 @@ import com.theveloper.pixelplay.presentation.components.scoped.FullPlayerVisualS
 import com.theveloper.pixelplay.presentation.components.scoped.rememberFullPlayerRuntimePolicy
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerSheetState
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
+import com.theveloper.pixelplay.presentation.viewmodel.toMedia3RepeatMode
 import com.theveloper.pixelplay.presentation.viewmodel.StablePlayerState
 
 @OptIn(UnstableApi::class)
@@ -77,6 +78,8 @@ internal fun BoxScope.UnifiedPlayerMiniAndFullLayers(
     val isSessionActive by playerViewModel.sessionActive.collectAsStateWithLifecycle()
     val displaySong by playerViewModel.displaySong.collectAsStateWithLifecycle()
     val displayIsPlaying by playerViewModel.displayIsPlaying.collectAsStateWithLifecycle()
+    val sessionShuffle by playerViewModel.sessionShuffle.collectAsStateWithLifecycle()
+    val sessionRepeat by playerViewModel.sessionRepeat.collectAsStateWithLifecycle()
     val surfaceSong = if (isSessionActive) displaySong else currentSong
 
     surfaceSong?.let { surfaceSongNonNull ->
@@ -196,6 +199,8 @@ internal fun BoxScope.UnifiedPlayerMiniAndFullLayers(
                     val latestDisplayIsPlaying = rememberUpdatedState(displayIsPlaying)
                     val latestSessionActive = rememberUpdatedState(isSessionActive)
                     val latestSurfaceSong = rememberUpdatedState(surfaceSongNonNull)
+                    val latestSessionShuffle = rememberUpdatedState(sessionShuffle)
+                    val latestSessionRepeat = rememberUpdatedState(sessionRepeat)
                     val expansionFractionProvider = remember(playerContentExpansionFraction) {
                         { playerContentExpansionFraction.value }
                     }
@@ -209,10 +214,24 @@ internal fun BoxScope.UnifiedPlayerMiniAndFullLayers(
                         { latestInfrequentPlayerState.value.playWhenReady }
                     }
                     val repeatModeProvider = remember {
-                        { latestInfrequentPlayerState.value.repeatMode }
+                        {
+                            if (latestSessionActive.value) {
+                                latestSessionRepeat.value?.toMedia3RepeatMode()
+                                    ?: latestInfrequentPlayerState.value.repeatMode
+                            } else {
+                                latestInfrequentPlayerState.value.repeatMode
+                            }
+                        }
                     }
                     val isShuffleEnabledProvider = remember {
-                        { latestInfrequentPlayerState.value.isShuffleEnabled }
+                        {
+                            if (latestSessionActive.value) {
+                                latestSessionShuffle.value
+                                    ?: latestInfrequentPlayerState.value.isShuffleEnabled
+                            } else {
+                                latestInfrequentPlayerState.value.isShuffleEnabled
+                            }
+                        }
                     }
                     val totalDurationProvider = remember {
                         {
@@ -307,6 +326,8 @@ internal fun UnifiedPlayerPrewarmLayer(
     val isSessionActive by playerViewModel.sessionActive.collectAsStateWithLifecycle()
     val displaySong by playerViewModel.displaySong.collectAsStateWithLifecycle()
     val displayIsPlaying by playerViewModel.displayIsPlaying.collectAsStateWithLifecycle()
+    val sessionShuffle by playerViewModel.sessionShuffle.collectAsStateWithLifecycle()
+    val sessionRepeat by playerViewModel.sessionRepeat.collectAsStateWithLifecycle()
     val surfaceSong = if (isSessionActive) displaySong else currentSong
 
     if (prewarmFullPlayer && surfaceSong != null) {
@@ -331,6 +352,8 @@ internal fun UnifiedPlayerPrewarmLayer(
                 val latestDisplayIsPlaying = rememberUpdatedState(displayIsPlaying)
                 val latestSessionActive = rememberUpdatedState(isSessionActive)
                 val latestSurfaceSong = rememberUpdatedState(surfaceSong)
+                val latestSessionShuffle = rememberUpdatedState(sessionShuffle)
+                val latestSessionRepeat = rememberUpdatedState(sessionRepeat)
                 val isPlayingProvider = remember {
                     {
                         if (latestSessionActive.value) latestDisplayIsPlaying.value
@@ -338,8 +361,26 @@ internal fun UnifiedPlayerPrewarmLayer(
                     }
                 }
                 val playWhenReadyProvider = remember { { latestInfrequentPlayerState.value.playWhenReady } }
-                val repeatModeProvider = remember { { latestInfrequentPlayerState.value.repeatMode } }
-                val isShuffleEnabledProvider = remember { { latestInfrequentPlayerState.value.isShuffleEnabled } }
+                val repeatModeProvider = remember {
+                    {
+                        if (latestSessionActive.value) {
+                            latestSessionRepeat.value?.toMedia3RepeatMode()
+                                ?: latestInfrequentPlayerState.value.repeatMode
+                        } else {
+                            latestInfrequentPlayerState.value.repeatMode
+                        }
+                    }
+                }
+                val isShuffleEnabledProvider = remember {
+                    {
+                        if (latestSessionActive.value) {
+                            latestSessionShuffle.value
+                                ?: latestInfrequentPlayerState.value.isShuffleEnabled
+                        } else {
+                            latestInfrequentPlayerState.value.isShuffleEnabled
+                        }
+                    }
+                }
                 val totalDurationProvider = remember {
                     {
                         if (latestSessionActive.value) latestSurfaceSong.value?.duration ?: 0L

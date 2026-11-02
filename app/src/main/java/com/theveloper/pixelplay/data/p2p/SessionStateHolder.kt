@@ -1,6 +1,7 @@
 package com.theveloper.pixelplay.data.p2p
 
 import com.theveloper.pixelplay.shared.p2p.P2pPlaybackStatus
+import com.theveloper.pixelplay.shared.p2p.P2pRepeatMode
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,6 +24,9 @@ data class StintSnapshot(
     val playbackId: String,
     val status: P2pPlaybackStatus,
     val updatedAtMs: Long,
+    /** Optional playback modes (contract section 6, added 2026-11-02); null = not reported. */
+    val shuffle: Boolean? = null,
+    val repeat: P2pRepeatMode? = null,
 )
 
 /** The shared-session view: whose stint is represented on the player surface. */

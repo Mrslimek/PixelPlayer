@@ -50,6 +50,13 @@ class MediaControllerCommandExecutor(
                 }
                 P2pCommandAction.NEXT -> controller.seekToNext()
                 P2pCommandAction.PREVIOUS -> controller.seekToPrevious()
+                // Playback-mode actions (contract section 6, added 2026-11-02): set the
+                // local queue modes; the effect is observable via the next state broadcast.
+                P2pCommandAction.REPEAT_OFF -> controller.repeatMode = androidx.media3.common.Player.REPEAT_MODE_OFF
+                P2pCommandAction.REPEAT_ALL -> controller.repeatMode = androidx.media3.common.Player.REPEAT_MODE_ALL
+                P2pCommandAction.REPEAT_ONE -> controller.repeatMode = androidx.media3.common.Player.REPEAT_MODE_ONE
+                P2pCommandAction.SHUFFLE_ON -> controller.shuffleModeEnabled = true
+                P2pCommandAction.SHUFFLE_OFF -> controller.shuffleModeEnabled = false
             }
         }
         return true

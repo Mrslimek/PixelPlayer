@@ -28,6 +28,9 @@ data class PeerPlaybackSnapshot(
     /** Shared-session fields (contract section 8); null = peer not session-capable. */
     val trackHash: String? = null,
     val playbackId: String? = null,
+    /** Playback-mode fields (contract section 6, added 2026-11-02); raw wire values. */
+    val shuffle: Boolean? = null,
+    val repeat: String? = null,
 )
 
 /** UI-facing snapshot of one peer (discovery + connection + live playback). */

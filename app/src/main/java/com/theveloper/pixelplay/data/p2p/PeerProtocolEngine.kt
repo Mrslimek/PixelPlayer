@@ -17,6 +17,7 @@ import com.theveloper.pixelplay.shared.p2p.P2pPeerPlaybackState
 import com.theveloper.pixelplay.shared.p2p.P2pPing
 import com.theveloper.pixelplay.shared.p2p.P2pPlaybackStatus
 import com.theveloper.pixelplay.shared.p2p.P2pPong
+import com.theveloper.pixelplay.shared.p2p.P2pRepeatMode
 import com.theveloper.pixelplay.shared.p2p.P2pProtocolVersion
 import com.theveloper.pixelplay.shared.p2p.P2pStateUpdate
 import com.theveloper.pixelplay.shared.p2p.P2pTest
@@ -628,6 +629,8 @@ class PeerProtocolEngine @Inject constructor(
             receivedAtMs = recvAt,
             trackHash = state.trackHash,
             playbackId = state.playbackId,
+            shuffle = state.shuffle,
+            repeat = state.repeat,
         )
         synchronized(lock) {
             record.lastPlayback = snapshot
@@ -671,6 +674,8 @@ class PeerProtocolEngine @Inject constructor(
             playbackId = snapshot.playbackId ?: return,
             status = snapshot.status,
             updatedAtMs = now(),
+            shuffle = snapshot.shuffle,
+            repeat = P2pRepeatMode.fromWire(snapshot.repeat),
         )
         sessionStateHolder.update { state ->
             when (val current = state.source) {
@@ -1155,6 +1160,13 @@ class PeerProtocolEngine @Inject constructor(
 
     private fun currentSeq(): Long = synchronized(lock) { localSeq }
 
+    /** Local queue mode -> wire value (contract section 6 playback-mode extension). */
+    private fun repeatModeWire(mode: Int): String = when (mode) {
+        androidx.media3.common.Player.REPEAT_MODE_ONE -> "one"
+        androidx.media3.common.Player.REPEAT_MODE_ALL -> "all"
+        else -> "off"
+    }
+
     /** Builds the outbound state payload with the shared-session fields: the track hash for
      *  the current song (cached-first; hashing on demand runs off-main) and the playbackId
      *  per contract section 8 stint rules (fresh per track start/takeover, kept on pause). */
@@ -1186,6 +1198,8 @@ class PeerProtocolEngine @Inject constructor(
             seq = 0L, // stamped per broadcast; handshake snapshots send the current seq as-is
             trackHash = trackHash,
             playbackId = synchronized(lock) { localPlaybackId },
+            shuffle = if (song == null) null else state.isShuffleEnabled,
+            repeat = if (song == null) null else repeatModeWire(state.repeatMode),
         )
     }
 
@@ -1228,6 +1242,8 @@ class PeerProtocolEngine @Inject constructor(
             artist = payload.artist,
             trackHash = payload.trackHash,
             playbackId = payload.playbackId,
+            shuffle = payload.shuffle,
+            repeat = payload.repeat,
         ),
     )
 
@@ -1252,6 +1268,8 @@ class PeerProtocolEngine @Inject constructor(
                 playbackId = payload.playbackId ?: "",
                 status = P2pPlaybackStatus.fromWire(payload.status) ?: P2pPlaybackStatus.STOPPED,
                 updatedAtMs = now(),
+                shuffle = payload.shuffle,
+                repeat = P2pRepeatMode.fromWire(payload.repeat),
             )
             sessionStateHolder.update { state ->
                 when (val current = state.source) {

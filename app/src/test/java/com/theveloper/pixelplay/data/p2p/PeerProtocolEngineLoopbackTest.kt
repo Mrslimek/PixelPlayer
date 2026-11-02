@@ -4,8 +4,10 @@ import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
 import com.theveloper.pixelplay.presentation.viewmodel.PlaybackStateHolder
 import com.theveloper.pixelplay.presentation.viewmodel.StablePlayerState
+import androidx.media3.common.Player
 import com.theveloper.pixelplay.shared.p2p.P2pCommandAction
 import com.theveloper.pixelplay.shared.p2p.P2pPlaybackStatus
+import com.theveloper.pixelplay.shared.p2p.P2pRepeatMode
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -139,6 +141,19 @@ class PeerProtocolEngineLoopbackTest {
                     stableState.value.copy(isPlaying = false, playWhenReady = false)
                 P2pCommandAction.PLAY -> stableState.value =
                     stableState.value.copy(isPlaying = true, playWhenReady = true)
+                // Playback-mode commands (added 2026-11-02): flip the local queue modes the
+                // way MediaControllerCommandExecutor does; the flip is observable via the
+                // next state_update broadcast.
+                P2pCommandAction.REPEAT_OFF -> stableState.value =
+                    stableState.value.copy(repeatMode = Player.REPEAT_MODE_OFF)
+                P2pCommandAction.REPEAT_ALL -> stableState.value =
+                    stableState.value.copy(repeatMode = Player.REPEAT_MODE_ALL)
+                P2pCommandAction.REPEAT_ONE -> stableState.value =
+                    stableState.value.copy(repeatMode = Player.REPEAT_MODE_ONE)
+                P2pCommandAction.SHUFFLE_ON -> stableState.value =
+                    stableState.value.copy(isShuffleEnabled = true)
+                P2pCommandAction.SHUFFLE_OFF -> stableState.value =
+                    stableState.value.copy(isShuffleEnabled = false)
                 else -> Unit
             }
             true
@@ -574,4 +589,52 @@ class PeerProtocolEngineLoopbackTest {
         bitrate = 128,
         sampleRate = 44_100,
     )
+
+    @Test
+    fun `repeat mode control-observe loop - command flips the target and the stint shows it`() {
+        val aId = "aaaaaaaa-0000-0000-0000-00000000002a"
+        val bId = "bbbbbbbb-0000-0000-0000-00000000002b"
+        val a = newFixture(aId, initialPlaying = false)
+        val b = newFixture(bId, initialPlaying = false)
+
+        try {
+            assertTrue(connectPeers(a, aId, b, bId), "engines never connected")
+
+            // A session-capable (hash-carrying) state_update makes B represent A's stint.
+            assertTrue(
+                await { b.sessionStateHolder.state.value.remotePeer?.peerId == aId },
+                "B never took A's stint into the session view",
+            )
+            // A (a mode-capable player) reports its queue modes from the first broadcast.
+            assertEquals(P2pRepeatMode.OFF, b.sessionStateHolder.state.value.remotePeer?.stint?.repeat)
+
+            // B's UI sends repeat_all; A applies it to its queue...
+            b.engine.sendCommand(aId, P2pCommandAction.REPEAT_ALL)
+            assertTrue(
+                await { a.commandsReceived.contains(P2pCommandAction.REPEAT_ALL to null) },
+                "A never received the repeat_all command",
+            )
+            assertTrue(
+                await { a.stableState.value.repeatMode == Player.REPEAT_MODE_ALL },
+                "A never flipped its queue mode",
+            )
+
+            // ...and A's NEXT state_update carries repeat:"all" -> B's stint shows it.
+            assertTrue(
+                await { b.sessionStateHolder.state.value.remotePeer?.stint?.repeat == P2pRepeatMode.ALL },
+                "B's session view never observed A's repeat=all",
+            )
+
+            // Shuffle loop over the same wire fields.
+            a.engine.sendCommand(bId, P2pCommandAction.SHUFFLE_ON)
+            assertTrue(await { b.stableState.value.isShuffleEnabled })
+            assertTrue(
+                await { a.sessionStateHolder.state.value.remotePeer?.stint?.shuffle == true },
+                "A's session view never observed B's shuffle=true",
+            )
+        } finally {
+            a.presence.value = false
+            b.presence.value = false
+        }
+    }
 }

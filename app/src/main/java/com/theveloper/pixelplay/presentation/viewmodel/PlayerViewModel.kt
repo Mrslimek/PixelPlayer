@@ -2239,6 +2239,19 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun toggleShuffle(currentSongOverride: Song? = null) {
+        // Playback-mode routing (contract section 6, added 2026-11-02): while the surface
+        // shows a remote stint that REPORTED modes, shuffle targets the remote queue and
+        // sends the OPPOSITE of the remote's current mode. Modes unknown (MVP peer) or
+        // non-remote -> the local queue behavior, unchanged.
+        if (sessionTransportRouter.transportMode() ==
+            com.theveloper.pixelplay.data.p2p.SessionTransportRouter.TransportMode.REMOTE
+        ) {
+            val remoteShuffle = sessionShuffle.value
+            if (remoteShuffle != null) {
+                sessionTransportRouter.dispatchShuffle(!remoteShuffle)
+                return
+            }
+        }
         playbackDispatchStateHolder.cancelPendingFullQueuePlayback()
         val currentQueue = _playerUiState.value.currentPlaybackQueue.toList()
         val currentSong = currentSongOverride
@@ -2257,6 +2270,23 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun cycleRepeatMode() {
+        // Same routing as shuffle: while a mode-reporting remote stint is represented, the
+        // cycle runs over the REMOTE's current mode: off -> all -> one -> off.
+        if (sessionTransportRouter.transportMode() ==
+            com.theveloper.pixelplay.data.p2p.SessionTransportRouter.TransportMode.REMOTE
+        ) {
+            when (sessionRepeat.value) {
+                com.theveloper.pixelplay.shared.p2p.P2pRepeatMode.OFF ->
+                    sessionTransportRouter.dispatchRepeat(com.theveloper.pixelplay.shared.p2p.P2pCommandAction.REPEAT_ALL)
+                com.theveloper.pixelplay.shared.p2p.P2pRepeatMode.ALL ->
+                    sessionTransportRouter.dispatchRepeat(com.theveloper.pixelplay.shared.p2p.P2pCommandAction.REPEAT_ONE)
+                com.theveloper.pixelplay.shared.p2p.P2pRepeatMode.ONE ->
+                    sessionTransportRouter.dispatchRepeat(com.theveloper.pixelplay.shared.p2p.P2pCommandAction.REPEAT_OFF)
+                // Modes unknown: fall through to the local queue behavior.
+                null -> {}
+            }
+            if (sessionRepeat.value != null) return
+        }
         playbackStateHolder.cycleRepeatMode()
     }
 
@@ -2572,6 +2602,30 @@ class PlayerViewModel @Inject constructor(
             SharingStarted.WhileSubscribed(5_000),
             false,
         )
+
+    /**
+     * The remote stint's playback modes (contract section 6, added 2026-11-02): non-null
+     * only while a REMOTE stint is represented AND the peer reported the mode; null for
+     * Local/null sources, takeovers and MVP peers. Local behavior uses its own state.
+     */
+    val sessionShuffle: StateFlow<Boolean?> = sessionStateHolder.state
+        .map { sessionDisplaySource.shuffleMode(it.source) }
+        .distinctUntilChanged()
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            null,
+        )
+
+    val sessionRepeat: StateFlow<com.theveloper.pixelplay.shared.p2p.P2pRepeatMode?> = sessionStateHolder.state
+        .map { sessionDisplaySource.repeatMode(it.source) }
+        .distinctUntilChanged()
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            null,
+        )
+
 
     private fun startProgressUpdates() {
         playbackStateHolder.startProgressUpdates()
@@ -3232,4 +3286,11 @@ internal fun parsePersistedLyrics(rawLyrics: String?): Lyrics? {
     return parsedLyrics.takeIf {
         !it.synced.isNullOrEmpty() || !it.plain.isNullOrEmpty()
     }
+}
+
+/** Visual mapping for the player surface: wire repeat mode -> media3 repeat mode. */
+internal fun com.theveloper.pixelplay.shared.p2p.P2pRepeatMode.toMedia3RepeatMode(): Int = when (this) {
+    com.theveloper.pixelplay.shared.p2p.P2pRepeatMode.OFF -> Player.REPEAT_MODE_OFF
+    com.theveloper.pixelplay.shared.p2p.P2pRepeatMode.ALL -> Player.REPEAT_MODE_ALL
+    com.theveloper.pixelplay.shared.p2p.P2pRepeatMode.ONE -> Player.REPEAT_MODE_ONE
 }
