@@ -51,7 +51,13 @@ fun AlbumCarouselSection(
     itemSpacing: Dp = 8.dp,
     albumArtQuality: AlbumArtQuality = AlbumArtQuality.MEDIUM
 ) {
-    if (queue.isEmpty()) return
+    // Shared-session surface: the display song comes from the REMOTE stint's hash
+    // resolution and may not be a member of the LOCAL queue. In that case the carousel
+    // would keep showing a stale queue page while the title already changed, so render
+    // the display song's own artwork strictly from its resolution instead.
+    val currentSongIndexInQueue = currentSong?.let { song -> queue.indexOfFirst { it.id == song.id } } ?: -1
+    val showStandaloneCover = currentSong != null && currentSongIndexInQueue < 0
+    if (queue.isEmpty() && !showStandaloneCover) return
 
     // Mantiene compatibilidad con tu llamada actual
     val initialIndex = remember(currentSong?.id, currentMediaItemIndex, queue) {
@@ -159,6 +165,23 @@ fun AlbumCarouselSection(
             }
         }
         lastSettledSongId = currentSong?.id
+    }
+
+    if (showStandaloneCover) {
+        BoxWithConstraints(modifier = modifier) {
+            val targetSizeStandalone = if (albumArtQuality.maxSize == 0) SafeOriginalAlbumArtSize
+            else Size(albumArtQuality.maxSize, albumArtQuality.maxSize)
+            OptimizedAlbumArt(
+                uri = currentSong?.albumArtUriString,
+                title = currentSong?.title.orEmpty(),
+                modifier = Modifier.fillMaxSize(),
+                targetSize = targetSizeStandalone,
+                placeholderModel = if (currentSong?.albumArtUriString?.startsWith("telegram_art") == true) {
+                    "${currentSong.albumArtUriString}?quality=thumb"
+                } else null,
+            )
+        }
+        return
     }
 
     val hapticFeedback = LocalHapticFeedback.current

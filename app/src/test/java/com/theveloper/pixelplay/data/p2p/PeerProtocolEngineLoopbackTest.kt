@@ -45,12 +45,14 @@ class PeerProtocolEngineLoopbackTest {
     private class FakeLibrary(
         private val hashOrNull: String?,
         private val ownSong: () -> Song,
+        private val hashBySongId: Map<String, String> = emptyMap(),
+        private val songByHash: Map<String, Song> = emptyMap(),
     ) : P2pSessionLibrary {
         val resolvableHash = hashOrNull ?: ("deadbeef" + "0".repeat(56))
 
-        override suspend fun trackHashFor(song: Song): String? = hashOrNull
+        override suspend fun trackHashFor(song: Song): String? = hashBySongId[song.id] ?: hashOrNull
         override suspend fun songForHash(trackHash: String): Song? =
-            if (trackHash == resolvableHash) ownSong() else null
+            songByHash[trackHash] ?: if (trackHash == resolvableHash) ownSong() else null
         override fun startBackgroundIndexing() = Unit
     }
 
@@ -72,6 +74,9 @@ class PeerProtocolEngineLoopbackTest {
         /** Simulates the local player: a takeover starts the song at the given position. */
         var onTakeover: ((Song, Double) -> Unit)? = null
 
+        /** Simulates pause-on-peer-active: self pauses when it observes a peer active. */
+        var onPeerActiveObserved: (() -> Unit)? = null
+
         override fun onPeerBecameActive(
             peerId: String,
             peerName: String,
@@ -81,6 +86,7 @@ class PeerProtocolEngineLoopbackTest {
             playbackId: String,
         ) {
             peerActiveEvents += PeerActive(peerId, peerName, trackHash, trackTitle, positionSec, playbackId)
+            onPeerActiveObserved?.invoke()
         }
 
         override fun onTakeoverRequested(song: Song, positionSec: Double): Boolean {
@@ -109,15 +115,18 @@ class PeerProtocolEngineLoopbackTest {
         initialPositionMs: Long = 0L,
         trackHash: String? = "deadbeef" + "0".repeat(56),
         remoteAllowed: Boolean = true,
+        initialSong: Song = testSong(),
+        library: P2pSessionLibrary? = null,
     ): Fixture {
         val eventLog = ProtocolEventLog()
         val stateHolder = PeerStateHolder()
         val sessionStateHolder = SessionStateHolder()
         val stableState = MutableStateFlow(
             StablePlayerState(
-                currentSong = testSong(),
+                currentSong = initialSong,
                 isPlaying = initialPlaying,
                 playWhenReady = initialPlaying,
+                totalDuration = initialSong.duration,
             ),
         )
         val position = MutableStateFlow(initialPositionMs)
@@ -169,7 +178,7 @@ class PeerProtocolEngineLoopbackTest {
         }
 
         val policy = RecordingPolicy()
-        val sessionLibrary = FakeLibrary(trackHash, ownSong = { testSong() })
+        val sessionLibrary = library ?: FakeLibrary(trackHash, ownSong = { testSong() })
 
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         scopes += scope
@@ -631,6 +640,115 @@ class PeerProtocolEngineLoopbackTest {
             assertTrue(
                 await { a.sessionStateHolder.state.value.remotePeer?.stint?.shuffle == true },
                 "A's session view never observed B's shuffle=true",
+            )
+        } finally {
+            a.presence.value = false
+            b.presence.value = false
+        }
+    }
+
+    // ------------------------------------------------ bug-fix regression tests
+
+    @Test
+    fun `track switch updates B's stint key and resolves track2's display song`() {
+        val song1 = testSong().copy(id = "t1", title = "Track One", albumArtUriString = "content://art/one")
+        val song2 = testSong().copy(id = "t2", title = "Track Two", albumArtUriString = "content://art/two")
+        val hash1 = "1111" + "1".repeat(60)
+        val hash2 = "2222" + "2".repeat(60)
+        val lib = FakeLibrary(
+            hashOrNull = null,
+            ownSong = { song1 },
+            hashBySongId = mapOf("t1" to hash1, "t2" to hash2),
+            songByHash = mapOf(hash1 to song1, hash2 to song2),
+        )
+        val aId = "aaaaaaaa-0000-0000-0000-00000000003a"
+        val bId = "bbbbbbbb-0000-0000-0000-00000000003b"
+        val a = newFixture(aId, initialPlaying = true, initialSong = song1, library = lib)
+        val b = newFixture(bId, initialPlaying = false, library = lib)
+
+        try {
+            assertTrue(connectPeers(a, aId, b, bId), "engines never connected")
+            assertTrue(
+                await { b.sessionStateHolder.state.value.remotePeer?.peerId == aId },
+                "B never took A's stint into the session view",
+            )
+            val firstStint = b.sessionStateHolder.state.value.remotePeer!!.stint
+            assertEquals(hash1, firstStint.trackHash)
+
+            // A switches to track2: fresh playbackId + new hash must arrive as a stint
+            // KEY change (playbackId|hash), which is what re-drives display resolution.
+            a.stableState.value = a.stableState.value.copy(currentSong = song2)
+            assertTrue(
+                await {
+                    val stint = b.sessionStateHolder.state.value.remotePeer?.stint
+                    stint?.trackHash == hash2 && stint.playbackId != firstStint.playbackId
+                },
+                "B's stint key never followed A's track switch",
+            )
+
+            // The display-source swap resolves the NEW hash: title + artwork fields of track2.
+            val resolver = com.theveloper.pixelplay.presentation.viewmodel.SessionDisplaySource { lib.songForHash(it) }
+            val request = resolver.requestFor(b.sessionStateHolder.state.value.source)
+            val displaySong = kotlinx.coroutines.runBlocking { resolver.resolveSong(request, localSong = null) }
+            assertEquals("Track Two", displaySong?.title)
+            assertEquals("content://art/two", displaySong?.albumArtUriString)
+        } finally {
+            a.presence.value = false
+            b.presence.value = false
+        }
+    }
+
+    @Test
+    fun `takeover while peer is PLAYING - taker goes local, peer auto-pauses, no conflict`() {
+        val aId = "aaaaaaaa-0000-0000-0000-00000000004a"
+        val bId = "bbbbbbbb-0000-0000-0000-00000000004b"
+        val a = newFixture(aId, initialPlaying = true)
+        val b = newFixture(bId, initialPlaying = false)
+
+        try {
+            assertTrue(connectPeers(a, aId, b, bId), "engines never connected")
+            assertTrue(
+                await { b.sessionStateHolder.state.value.remotePeer?.peerId == aId },
+                "B never took A's stint into the session view",
+            )
+            assertTrue(a.stableState.value.playWhenReady, "precondition: A is playing")
+            val takenPosition = b.sessionStateHolder.state.value.remotePeer!!.stint.positionSec
+
+            // B's policy starts local playback of A's track at A's position.
+            b.policy.onTakeover = { song, positionSec ->
+                b.stableState.value = b.stableState.value.copy(
+                    currentSong = song,
+                    isPlaying = true,
+                    playWhenReady = true,
+                    totalDuration = song.duration,
+                )
+                b.position.value = (positionSec * 1000).toLong()
+            }
+            // A's pause-on-peer-active policy pauses A when it observes B's active stint.
+            a.policy.onPeerActiveObserved = {
+                a.stableState.value = a.stableState.value.copy(isPlaying = false, playWhenReady = false)
+            }
+
+            assertTrue(kotlinx.coroutines.runBlocking { b.engine.playHere(aId) }, "takeover must be allowed while the peer is playing")
+
+            // The takeover resolved to B's own Local view (self playing broadcast wins).
+            assertTrue(
+                await { b.sessionStateHolder.state.value.source is SessionSource.Local },
+                "B's view never became Local after the takeover",
+            )
+            val local = b.sessionStateHolder.state.value.source as SessionSource.Local
+            assertEquals("deadbeef" + "0".repeat(56), local.stint.trackHash)
+            assertEquals(takenPosition, local.stint.positionSec, 0.5)
+
+            // A auto-paused: the single-active invariant holds, so NO conflict is emitted.
+            assertTrue(await { !a.stableState.value.playWhenReady }, "A never auto-paused")
+            assertTrue(
+                await {
+                    val conflict = b.sessionStateHolder.state.value.conflictActive
+                    val aConflict = a.sessionStateHolder.state.value.conflictActive
+                    !conflict && !aConflict
+                },
+                "a sanctioned takeover must not surface a session conflict",
             )
         } finally {
             a.presence.value = false

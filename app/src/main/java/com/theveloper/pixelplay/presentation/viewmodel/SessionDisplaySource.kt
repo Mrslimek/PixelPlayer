@@ -81,6 +81,39 @@ internal class SessionDisplaySource(
     fun repeatMode(source: SessionSource?): P2pRepeatMode? =
         (source as? SessionSource.Remote)?.stint?.repeat
 
+    /**
+     * Optimistic session-mode override (contract section 6 UX): a tap shows the EXPECTED
+     * mode immediately instead of waiting for the peer's broadcast round-trip. Keyed by
+     * the stint's playbackId so it never leaks across stints; a broadcast that reports
+     * the field always overwrites (retires) the optimistic value — reconciliation is
+     * strictly truthful.
+     */
+    data class OptimisticModes(val playbackId: String, val shuffle: Boolean?, val repeat: P2pRepeatMode?)
+
+    /** The value the surface shows: optimistic (for the same stint) over the last report. */
+    fun shownShuffle(reported: Boolean?, optimistic: OptimisticModes?, playbackId: String?): Boolean? =
+        if (optimistic != null && optimistic.playbackId == playbackId) optimistic.shuffle ?: reported
+        else reported
+
+    fun shownRepeat(reported: P2pRepeatMode?, optimistic: OptimisticModes?, playbackId: String?): P2pRepeatMode? =
+        if (optimistic != null && optimistic.playbackId == playbackId) optimistic.repeat ?: reported
+        else reported
+
+    /**
+     * Reconcile after a session-state emission: a broadcast always overwrites — retire the
+     * optimistic field as soon as the peer reports that field for the same stint. Drop the
+     * whole override when the view leaves the reported stint (local / new stint / none).
+     */
+    fun reconcile(optimistic: OptimisticModes?, source: SessionSource?): OptimisticModes? {
+        if (optimistic == null) return null
+        val remote = source as? SessionSource.Remote ?: return null
+        if (remote.stint.playbackId != optimistic.playbackId) return null
+        var next = optimistic
+        if (remote.stint.shuffle != null) next = next.copy(shuffle = null)
+        if (remote.stint.repeat != null) next = next.copy(repeat = null)
+        return next.takeIf { it.shuffle != null || it.repeat != null }
+    }
+
     companion object {
         private const val TAG = "P2P"
         /** Library-unsynced fallback: titled by the stint report, no artwork, unknown duration. */

@@ -278,4 +278,64 @@ class DisplaySourceSwapTest {
         assertNull(source.shuffleMode(remoteStint(P2pPlaybackStatus.PLAYING)))
         assertNull(source.repeatMode(remoteStint(P2pPlaybackStatus.PLAYING)))
     }
+
+    // ------------------------------------------------ optimistic mode feedback
+
+    private fun optimistic(playbackId: String, shuffle: Boolean? = null, repeat: P2pRepeatMode? = null) =
+        SessionDisplaySource.OptimisticModes(playbackId, shuffle, repeat)
+
+    @Test
+    fun `optimistic mode shows the expected value immediately for the same stint`() {
+        val source = SessionDisplaySource { null }
+        val reportedStint = remoteStint(P2pPlaybackStatus.PLAYING).stint.copy(shuffle = true)
+        val reportedShuffle = source.shuffleMode(remoteStint(P2pPlaybackStatus.PLAYING).copy(stint = reportedStint))
+
+        // Tap while remote shuffle is on: the button must show OFF at once.
+        assertEquals(false, source.shownShuffle(reportedShuffle, optimistic("pb-1", shuffle = false), "pb-1"))
+        assertEquals(P2pRepeatMode.ONE, source.shownRepeat(P2pRepeatMode.OFF, optimistic("pb-1", repeat = P2pRepeatMode.ONE), "pb-1"))
+    }
+
+    @Test
+    fun `optimistic mode is ignored for a different stint and never masks the report`() {
+        val source = SessionDisplaySource { null }
+
+        assertEquals(true, source.shownShuffle(true, optimistic("pb-2", shuffle = false), "pb-1"))
+        assertNull(source.shownShuffle(null, optimistic("pb-2", shuffle = false), "pb-1"))
+    }
+
+    @Test
+    fun `a broadcast that reports the field retires the optimistic override`() {
+        val source = SessionDisplaySource { null }
+        val opt = optimistic("pb-1", shuffle = false, repeat = P2pRepeatMode.ONE)
+        val stint = remoteStint(P2pPlaybackStatus.PLAYING).stint.copy(shuffle = false, repeat = P2pRepeatMode.ONE)
+
+        val reconciled = source.reconcile(opt, remoteStint(P2pPlaybackStatus.PLAYING).copy(stint = stint))
+        assertNull(reconciled, "both optimistic values confirmed by the broadcast -> override retired")
+
+        // Partial confirmation: only the confirmed field is retired.
+        val partial = source.reconcile(
+            opt,
+            remoteStint(P2pPlaybackStatus.PLAYING).copy(
+                stint = remoteStint(P2pPlaybackStatus.PLAYING).stint.copy(shuffle = false, repeat = null),
+            ),
+        )
+        assertEquals(optimistic("pb-1", shuffle = null, repeat = P2pRepeatMode.ONE), partial)
+    }
+
+    @Test
+    fun `reconcile drops the override when the view leaves the reported stint`() {
+        val source = SessionDisplaySource { null }
+        val opt = optimistic("pb-1", shuffle = false)
+
+        assertNull(source.reconcile(opt, null))
+        assertNull(source.reconcile(opt, SessionSource.Local(remoteStint(P2pPlaybackStatus.PLAYING).stint)))
+        assertNull(
+            source.reconcile(
+                opt,
+                remoteStint(P2pPlaybackStatus.PLAYING, playbackId = "pb-9"),
+            ),
+        )
+        // The peer does not report modes at all: the override survives (button stays optimistic).
+        assertEquals(opt, source.reconcile(opt, remoteStint(P2pPlaybackStatus.PLAYING)))
+    }
 }

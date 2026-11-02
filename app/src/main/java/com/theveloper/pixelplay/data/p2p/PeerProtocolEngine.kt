@@ -677,6 +677,8 @@ class PeerProtocolEngine @Inject constructor(
             shuffle = snapshot.shuffle,
             repeat = P2pRepeatMode.fromWire(snapshot.repeat),
         )
+        val keyBefore = (sessionStateHolder.state.value.source as? SessionSource.Remote)
+            ?.let { "${it.stint.playbackId}|${it.stint.trackHash.take(8)}" }
         sessionStateHolder.update { state ->
             when (val current = state.source) {
                 is SessionSource.TakeoverInFlight -> state // self's playing broadcast resolves it
@@ -732,6 +734,16 @@ class PeerProtocolEngine @Inject constructor(
                         ),
                     )
             }
+        }
+        val keyAfter = (sessionStateHolder.state.value.source as? SessionSource.Remote)
+            ?.let { "${it.stint.playbackId}|${it.stint.trackHash.take(8)}" }
+        if (keyBefore != keyAfter) {
+            // Track-switch diagnosis: the stint key (playbackId|hash) drives the display
+            // song resolution; log every change with hash prefixes.
+            Timber.tag("P2P").i(
+                "session view stint key: %s -> %s (%s)",
+                keyBefore ?: "none", keyAfter ?: "none", snapshot.status.wireValue,
+            )
         }
     }
 
@@ -1420,7 +1432,9 @@ class PeerProtocolEngine @Inject constructor(
             val record = peers[peerKey] ?: return false
             val pb = record.lastPlayback ?: return false
             val hash = pb.trackHash ?: return false
-            if (pb.status != P2pPlaybackStatus.PLAYING) return false
+            // Takeover is allowed for ANY stint status (playing or paused): the taker starts
+            // local playback and the peer's pause-on-peer-active policy auto-pauses it —
+            // the sanctioned flow, never a conflict.
             TakeoverTarget(record.id ?: record.addrKey, record.displayName, hash, pb.positionSec)
         }
         val previousSource = sessionStateHolder.state.value.source

@@ -2247,8 +2247,16 @@ class PlayerViewModel @Inject constructor(
             com.theveloper.pixelplay.data.p2p.SessionTransportRouter.TransportMode.REMOTE
         ) {
             val remoteShuffle = sessionShuffle.value
-            if (remoteShuffle != null) {
-                sessionTransportRouter.dispatchShuffle(!remoteShuffle)
+            val playbackId = remotePlaybackId()
+            if (remoteShuffle != null && playbackId != null) {
+                val next = !remoteShuffle
+                // Optimistic: show the expected mode at once; the next broadcast reconciles.
+                optimisticSessionModes.value = SessionDisplaySource.OptimisticModes(
+                    playbackId = playbackId,
+                    shuffle = next,
+                    repeat = optimisticSessionModes.value?.takeIf { it.playbackId == playbackId }?.repeat,
+                )
+                sessionTransportRouter.dispatchShuffle(next)
                 return
             }
         }
@@ -2275,17 +2283,35 @@ class PlayerViewModel @Inject constructor(
         if (sessionTransportRouter.transportMode() ==
             com.theveloper.pixelplay.data.p2p.SessionTransportRouter.TransportMode.REMOTE
         ) {
-            when (sessionRepeat.value) {
+            val playbackId = remotePlaybackId()
+            val next = when (sessionRepeat.value) {
                 com.theveloper.pixelplay.shared.p2p.P2pRepeatMode.OFF ->
-                    sessionTransportRouter.dispatchRepeat(com.theveloper.pixelplay.shared.p2p.P2pCommandAction.REPEAT_ALL)
+                    com.theveloper.pixelplay.shared.p2p.P2pRepeatMode.ALL
                 com.theveloper.pixelplay.shared.p2p.P2pRepeatMode.ALL ->
-                    sessionTransportRouter.dispatchRepeat(com.theveloper.pixelplay.shared.p2p.P2pCommandAction.REPEAT_ONE)
+                    com.theveloper.pixelplay.shared.p2p.P2pRepeatMode.ONE
                 com.theveloper.pixelplay.shared.p2p.P2pRepeatMode.ONE ->
-                    sessionTransportRouter.dispatchRepeat(com.theveloper.pixelplay.shared.p2p.P2pCommandAction.REPEAT_OFF)
+                    com.theveloper.pixelplay.shared.p2p.P2pRepeatMode.OFF
                 // Modes unknown: fall through to the local queue behavior.
-                null -> {}
+                null -> null
             }
-            if (sessionRepeat.value != null) return
+            if (next != null && playbackId != null) {
+                val action = when (next) {
+                    com.theveloper.pixelplay.shared.p2p.P2pRepeatMode.OFF ->
+                        com.theveloper.pixelplay.shared.p2p.P2pCommandAction.REPEAT_OFF
+                    com.theveloper.pixelplay.shared.p2p.P2pRepeatMode.ALL ->
+                        com.theveloper.pixelplay.shared.p2p.P2pCommandAction.REPEAT_ALL
+                    com.theveloper.pixelplay.shared.p2p.P2pRepeatMode.ONE ->
+                        com.theveloper.pixelplay.shared.p2p.P2pCommandAction.REPEAT_ONE
+                }
+                // Optimistic: show the expected mode at once; the next broadcast reconciles.
+                optimisticSessionModes.value = SessionDisplaySource.OptimisticModes(
+                    playbackId = playbackId,
+                    shuffle = optimisticSessionModes.value?.takeIf { it.playbackId == playbackId }?.shuffle,
+                    repeat = next,
+                )
+                sessionTransportRouter.dispatchRepeat(action)
+                return
+            }
         }
         playbackStateHolder.cycleRepeatMode()
     }
@@ -2607,9 +2633,38 @@ class PlayerViewModel @Inject constructor(
      * The remote stint's playback modes (contract section 6, added 2026-11-02): non-null
      * only while a REMOTE stint is represented AND the peer reported the mode; null for
      * Local/null sources, takeovers and MVP peers. Local behavior uses its own state.
+     *
+     * OPTIMISTIC: a tap updates these flows immediately with the expected value (keyed to
+     * the stint) so the button responds instantly and rapid taps cycle correctly; the
+     * next broadcast that reports the field retires the override (truthful reconciliation
+     * via [SessionDisplaySource.reconcile]).
      */
-    val sessionShuffle: StateFlow<Boolean?> = sessionStateHolder.state
-        .map { sessionDisplaySource.shuffleMode(it.source) }
+    private val optimisticSessionModes = MutableStateFlow<SessionDisplaySource.OptimisticModes?>(null)
+
+    private fun remotePlaybackId(): String? =
+        (sessionStateHolder.state.value.source as? com.theveloper.pixelplay.data.p2p.SessionSource.Remote)?.stint?.playbackId
+
+    private fun reconcileOptimisticModes(
+        optimistic: SessionDisplaySource.OptimisticModes?,
+        session: com.theveloper.pixelplay.data.p2p.P2pSessionState,
+    ): SessionDisplaySource.OptimisticModes? {
+        val reconciled = sessionDisplaySource.reconcile(optimistic, session.source)
+        if (reconciled != optimistic) optimisticSessionModes.value = reconciled
+        return reconciled
+    }
+
+    val sessionShuffle: StateFlow<Boolean?> = combine(
+        sessionStateHolder.state,
+        optimisticSessionModes,
+    ) { session, optimistic ->
+        val reconciled = reconcileOptimisticModes(optimistic, session)
+        val remote = session.source as? com.theveloper.pixelplay.data.p2p.SessionSource.Remote
+        sessionDisplaySource.shownShuffle(
+            reported = sessionDisplaySource.shuffleMode(session.source),
+            optimistic = reconciled,
+            playbackId = remote?.stint?.playbackId,
+        )
+    }
         .distinctUntilChanged()
         .stateIn(
             viewModelScope,
@@ -2617,14 +2672,25 @@ class PlayerViewModel @Inject constructor(
             null,
         )
 
-    val sessionRepeat: StateFlow<com.theveloper.pixelplay.shared.p2p.P2pRepeatMode?> = sessionStateHolder.state
-        .map { sessionDisplaySource.repeatMode(it.source) }
+    val sessionRepeat: StateFlow<com.theveloper.pixelplay.shared.p2p.P2pRepeatMode?> = combine(
+        sessionStateHolder.state,
+        optimisticSessionModes,
+    ) { session, optimistic ->
+        val reconciled = reconcileOptimisticModes(optimistic, session)
+        val remote = session.source as? com.theveloper.pixelplay.data.p2p.SessionSource.Remote
+        sessionDisplaySource.shownRepeat(
+            reported = sessionDisplaySource.repeatMode(session.source),
+            optimistic = reconciled,
+            playbackId = remote?.stint?.playbackId,
+        )
+    }
         .distinctUntilChanged()
         .stateIn(
             viewModelScope,
             SharingStarted.WhileSubscribed(5_000),
             null,
         )
+
 
 
     private fun startProgressUpdates() {
