@@ -71,7 +71,15 @@ internal fun BoxScope.UnifiedPlayerMiniAndFullLayers(
     onQueueRelease: (Float, Float) -> Unit,
     onShowCastClicked: () -> Unit
 ) {
-    currentSong?.let { currentSongNonNull ->
+    // Shared-session display-source swap: while a peer holds the stint (any reachability)
+    // the surface renders the resolved local Song and the stint's play state; local
+    // pass-through makes the non-session case identical to before.
+    val isSessionActive by playerViewModel.sessionActive.collectAsStateWithLifecycle()
+    val displaySong by playerViewModel.displaySong.collectAsStateWithLifecycle()
+    val displayIsPlaying by playerViewModel.displayIsPlaying.collectAsStateWithLifecycle()
+    val surfaceSong = if (isSessionActive) displaySong else currentSong
+
+    surfaceSong?.let { surfaceSongNonNull ->
         miniPlayerScheme?.let { readyScheme ->
             CompositionLocalProvider(
                 LocalMaterialTheme provides readyScheme
@@ -118,15 +126,18 @@ internal fun BoxScope.UnifiedPlayerMiniAndFullLayers(
                     val isMiniPlayerVisible by remember {
                         derivedStateOf { playerContentExpansionFraction.value < 0.01f }
                     }
+                    // Display-aware play state: while a session is active the mini player
+                    // shows the remote stint's song, so it must also show its play state.
+                    val miniIsPlaying = if (isSessionActive) displayIsPlaying else infrequentPlayerState.isPlaying
                     MiniPlayerContentInternal(
-                        song = currentSongNonNull,
-                        isPlaying = infrequentPlayerState.isPlaying,
+                        song = surfaceSongNonNull,
+                        isPlaying = miniIsPlaying,
                         isCastConnecting = isCastConnecting,
                         isPreparingPlayback = isPreparingPlayback,
                         onPlayPause = { playerViewModel.playPause() },
                         onPrevious = { playerViewModel.previousSong() },
                         onNext = { playerViewModel.nextSong() },
-                        canScroll = isMiniPlayerVisible && infrequentPlayerState.isPlaying,
+                        canScroll = isMiniPlayerVisible && miniIsPlaying,
                         modifier = Modifier.fillMaxSize()
                     )
                 }
@@ -182,11 +193,17 @@ internal fun BoxScope.UnifiedPlayerMiniAndFullLayers(
                 ) {
                     val latestInfrequentPlayerState = rememberUpdatedState(infrequentPlayerState)
                     val latestIsFavorite = rememberUpdatedState(isFavorite)
+                    val latestDisplayIsPlaying = rememberUpdatedState(displayIsPlaying)
+                    val latestSessionActive = rememberUpdatedState(isSessionActive)
+                    val latestSurfaceSong = rememberUpdatedState(surfaceSongNonNull)
                     val expansionFractionProvider = remember(playerContentExpansionFraction) {
                         { playerContentExpansionFraction.value }
                     }
                     val isPlayingProvider = remember {
-                        { latestInfrequentPlayerState.value.isPlaying }
+                        {
+                            if (latestSessionActive.value) latestDisplayIsPlaying.value
+                            else latestInfrequentPlayerState.value.isPlaying
+                        }
                     }
                     val playWhenReadyProvider = remember {
                         { latestInfrequentPlayerState.value.playWhenReady }
@@ -198,7 +215,10 @@ internal fun BoxScope.UnifiedPlayerMiniAndFullLayers(
                         { latestInfrequentPlayerState.value.isShuffleEnabled }
                     }
                     val totalDurationProvider = remember {
-                        { latestInfrequentPlayerState.value.totalDuration }
+                        {
+                            if (latestSessionActive.value) latestSurfaceSong.value?.duration ?: 0L
+                            else latestInfrequentPlayerState.value.totalDuration
+                        }
                     }
                     val lyricsProvider = remember {
                         { latestInfrequentPlayerState.value.lyrics }
@@ -220,7 +240,7 @@ internal fun BoxScope.UnifiedPlayerMiniAndFullLayers(
                     val onFavoriteToggle = remember(playerViewModel) { playerViewModel::toggleFavorite }
 
                     FullPlayerContent(
-                        currentSong = currentSongNonNull,
+                        currentSong = surfaceSongNonNull,
                         currentPlaybackQueue = currentPlaybackQueue,
                         currentQueueSourceName = currentQueueSourceName,
                         currentMediaItemIndex = infrequentPlayerState.currentMediaItemIndex,
@@ -283,7 +303,13 @@ internal fun UnifiedPlayerPrewarmLayer(
     onQueueDrag: (Float) -> Unit,
     onQueueRelease: (Float, Float) -> Unit
 ) {
-    if (prewarmFullPlayer && currentSong != null) {
+    // Same display-source swap as the live layer, so the prewarmed surface matches it.
+    val isSessionActive by playerViewModel.sessionActive.collectAsStateWithLifecycle()
+    val displaySong by playerViewModel.displaySong.collectAsStateWithLifecycle()
+    val displayIsPlaying by playerViewModel.displayIsPlaying.collectAsStateWithLifecycle()
+    val surfaceSong = if (isSessionActive) displaySong else currentSong
+
+    if (prewarmFullPlayer && surfaceSong != null) {
         // Scoped queue collection: the prewarmed FullPlayer owns its own
         // subscription, keeping the queue out of the outer sheet's state.
         val currentPlaybackQueue by playerViewModel.queueFlow
@@ -302,11 +328,24 @@ internal fun UnifiedPlayerPrewarmLayer(
                 // new lambda instances on every recomposition.
                 val latestInfrequentPlayerState = rememberUpdatedState(infrequentPlayerState)
                 val latestIsFavorite = rememberUpdatedState(isFavorite)
-                val isPlayingProvider = remember { { latestInfrequentPlayerState.value.isPlaying } }
+                val latestDisplayIsPlaying = rememberUpdatedState(displayIsPlaying)
+                val latestSessionActive = rememberUpdatedState(isSessionActive)
+                val latestSurfaceSong = rememberUpdatedState(surfaceSong)
+                val isPlayingProvider = remember {
+                    {
+                        if (latestSessionActive.value) latestDisplayIsPlaying.value
+                        else latestInfrequentPlayerState.value.isPlaying
+                    }
+                }
                 val playWhenReadyProvider = remember { { latestInfrequentPlayerState.value.playWhenReady } }
                 val repeatModeProvider = remember { { latestInfrequentPlayerState.value.repeatMode } }
                 val isShuffleEnabledProvider = remember { { latestInfrequentPlayerState.value.isShuffleEnabled } }
-                val totalDurationProvider = remember { { latestInfrequentPlayerState.value.totalDuration } }
+                val totalDurationProvider = remember {
+                    {
+                        if (latestSessionActive.value) latestSurfaceSong.value?.duration ?: 0L
+                        else latestInfrequentPlayerState.value.totalDuration
+                    }
+                }
                 val lyricsProvider = remember { { latestInfrequentPlayerState.value.lyrics } }
                 val isFavoriteProvider = remember { { latestIsFavorite.value } }
                 val onPlayPause = remember(playerViewModel) { playerViewModel::playPause }
@@ -318,7 +357,7 @@ internal fun UnifiedPlayerPrewarmLayer(
                 val onFavoriteToggle = remember(playerViewModel) { playerViewModel::toggleFavorite }
 
                 FullPlayerContent(
-                    currentSong = currentSong,
+                    currentSong = surfaceSong,
                     currentPlaybackQueue = currentPlaybackQueue,
                     currentQueueSourceName = currentQueueSourceName,
                     currentMediaItemIndex = infrequentPlayerState.currentMediaItemIndex,

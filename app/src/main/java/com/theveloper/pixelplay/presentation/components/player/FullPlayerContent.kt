@@ -257,6 +257,8 @@ fun FullPlayerContent(
     val immersiveLyricsTimeout = fullPlayerSlice.immersiveLyricsTimeout
     val isImmersiveTemporarilyDisabled = fullPlayerSlice.isImmersiveTemporarilyDisabled
     val isRemotePlaybackActive = fullPlayerSlice.isRemotePlaybackActive
+    // Shared-session axis (distinct from Cast): the surface may render a peer's stint.
+    val isSessionActive = playerViewModel.sessionActive.collectAsStateWithLifecycle().value
     val selectedRouteName = fullPlayerSlice.selectedRouteName
     val isBluetoothEnabled = fullPlayerSlice.isBluetoothEnabled
     val bluetoothName = fullPlayerSlice.bluetoothName
@@ -428,6 +430,7 @@ fun FullPlayerContent(
     val latestCurrentQueueIndex by rememberUpdatedState(currentQueueIndex)
     val latestRepeatMode by rememberUpdatedState(repeatMode)
     val latestIsRemotePlaybackActive by rememberUpdatedState(isRemotePlaybackActive)
+    val latestSessionActive by rememberUpdatedState(isSessionActive)
     val latestCurrentPositionProvider by rememberUpdatedState(currentPositionProvider)
     val latestOnNext by rememberUpdatedState(onNext)
     val latestOnPrevious by rememberUpdatedState(onPrevious)
@@ -458,6 +461,9 @@ fun FullPlayerContent(
     }
 
     fun predictSkipCarouselIndex(direction: SkipDirection): Int? {
+        // Shared-session surface: skip prediction targets the LOCAL queue and must not
+        // act on the displayed remote song (same reasoning as the Cast guard below).
+        if (latestSessionActive) return null
         val queueSnapshot = latestQueue
         val baseIndex = pendingCarouselIndex
             ?: latestCurrentQueueIndex
@@ -930,19 +936,37 @@ fun FullPlayerContent(
             }
             // Shared-session representation (contract section 8): the player surface shows
             // whose stint is active. LOCAL renders nothing here (today's player); remote,
-            // unreachable, gone, takeover-in-flight and conflicts are represented. Transport
-            // routing happens in PlayerViewModel (command dispatch vs local player).
+            // unreachable, gone and takeover-in-flight are represented as a compact chip.
+            // Transport routing happens in PlayerViewModel (command dispatch vs local player).
             val p2pSessionState by playerViewModel.p2pSessionState.collectAsStateWithLifecycle()
-            val sessionPositionEstimate by playerViewModel.sessionPositionEstimateMs.collectAsStateWithLifecycle()
-            com.theveloper.pixelplay.presentation.peers.SessionPlayerOverlay(
-                state = p2pSessionState,
-                positionEstimateMs = sessionPositionEstimate,
-                onPlayHere = { playerViewModel.playHereFromSession() },
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(paddingValues)
-                    .padding(top = 8.dp, start = 12.dp, end = 12.dp),
-            )
+            val displayIsPlaying by playerViewModel.displayIsPlaying.collectAsStateWithLifecycle()
+            when (val sessionSource = p2pSessionState.source) {
+                is com.theveloper.pixelplay.data.p2p.SessionSource.Remote,
+                is com.theveloper.pixelplay.data.p2p.SessionSource.TakeoverInFlight -> {
+                    com.theveloper.pixelplay.presentation.peers.SessionChip(
+                        source = sessionSource,
+                        isPlaying = displayIsPlaying,
+                        onPlayHere = { playerViewModel.playHereFromSession() },
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(paddingValues)
+                            .padding(top = 8.dp, start = 12.dp, end = 12.dp),
+                    )
+                }
+                else -> Unit
+            }
+            // Conflict banner stays exactly as it was (previously composited by the overlay).
+            if (p2pSessionState.conflictActive) {
+                p2pSessionState.conflicts.firstOrNull()?.let { conflict ->
+                    com.theveloper.pixelplay.presentation.peers.SessionConflictBanner(
+                        conflict = conflict,
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(paddingValues)
+                            .padding(top = 48.dp, start = 12.dp, end = 12.dp),
+                    )
+                }
+            }
         }
     }
     AnimatedVisibility(

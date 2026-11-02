@@ -477,6 +477,8 @@
     <string name="p2p_play_here">Play here</string>
     <string name="p2p_library_unsynced_error">Library not synced: this track isn\'t in your local library.</string>
     <string name="p2p_session_conflict_banner">Session conflict: %1$s both playing</string>
+    <string name="p2p_session_connection_lost">Connection lost — last known state</string>
+    <string name="p2p_taking_over_from">Taking over from %1$s…</string>
     <string name="settings_dev_test_crash_message">Test crash triggered from Developer Options - This is intentional for testing the crash reporting system</string>
 
     <!-- Experimental settings -->

@@ -302,4 +302,96 @@ class SessionStateReachabilityTest {
         installRemote(h, fresh)
         assertEquals(11.25, h.sessionStateHolder.state.value.remotePeer!!.stint.positionSec, 0.0)
     }
+    // ------------------------------------------------ paused-local yield (contract section 8)
+
+    private fun peerBroadcast(
+        status: P2pPlaybackStatus,
+        trackHash: String = PEER_HASH,
+        playbackId: String = "pb-peer-yield",
+        positionSec: Double = 7.5,
+    ) = PeerPlaybackSnapshot(
+        track = "Peer Track",
+        artist = "Peer Artist",
+        status = status,
+        positionSec = positionSec,
+        seq = 1L,
+        receivedAtMs = 1_700_000_000_000L,
+        trackHash = trackHash,
+        playbackId = playbackId,
+    )
+
+    private fun selfBroadcast(status: P2pPlaybackStatus, playbackId: String) = P2pPeerPlaybackState(
+        track = "Self Track",
+        artist = "Me",
+        status = status.wireValue,
+        positionSec = 3.0,
+        trackHash = SELF_HASH,
+        playbackId = playbackId,
+    )
+
+    @Test
+    fun `paused local stint yields the view to an actively playing peer`() {
+        val h = harness()
+
+        // Self plays then pauses: a Local stint stays the view while paused...
+        h.engine.publishSelf(selfBroadcast(P2pPlaybackStatus.PLAYING, "pb-self-a"))
+        h.engine.publishSelf(selfBroadcast(P2pPlaybackStatus.PAUSED, "pb-self-a"))
+        assertTrue(h.sessionStateHolder.state.value.source is SessionSource.Local)
+
+        // ...but a peer actively PLAYING (hash + playbackId, CONNECTED) takes the view.
+        h.engine.onPeerStateUpdateForTest(PEER_ID, PEER_NAME, peerBroadcast(P2pPlaybackStatus.PLAYING))
+
+        val source = h.sessionStateHolder.state.value.source
+        assertTrue(source is SessionSource.Remote, "playing peer must take a paused-local view, was $source")
+        source as SessionSource.Remote
+        assertEquals(PEER_ID, source.peerId)
+        assertEquals(PEER_NAME, source.peerName)
+        assertEquals(SessionPeerReachability.CONNECTED, source.reachability)
+        assertEquals(PEER_HASH, source.stint.trackHash)
+        assertEquals("pb-peer-yield", source.stint.playbackId)
+        assertEquals(P2pPlaybackStatus.PLAYING, source.stint.status)
+    }
+
+    @Test
+    fun `actively playing local stint keeps the view against a playing peer`() {
+        val h = harness()
+        h.engine.publishSelf(selfBroadcast(P2pPlaybackStatus.PLAYING, "pb-self-a"))
+        val localBefore = h.sessionStateHolder.state.value.source
+
+        h.engine.onPeerStateUpdateForTest(PEER_ID, PEER_NAME, peerBroadcast(P2pPlaybackStatus.PLAYING))
+
+        val source = h.sessionStateHolder.state.value.source
+        assertTrue(source is SessionSource.Local, "self actively playing must keep the view, was $source")
+        assertEquals(localBefore, source)
+    }
+
+    @Test
+    fun `paused peer never steals a paused local view`() {
+        val h = harness()
+        h.engine.publishSelf(selfBroadcast(P2pPlaybackStatus.PLAYING, "pb-self-a"))
+        h.engine.publishSelf(selfBroadcast(P2pPlaybackStatus.PAUSED, "pb-self-a"))
+        val localBefore = h.sessionStateHolder.state.value.source
+
+        h.engine.onPeerStateUpdateForTest(PEER_ID, PEER_NAME, peerBroadcast(P2pPlaybackStatus.PAUSED))
+
+        val source = h.sessionStateHolder.state.value.source
+        assertTrue(source is SessionSource.Local, "paused peer must not steal a paused local view, was $source")
+        assertEquals(localBefore, source)
+    }
+
+    @Test
+    fun `after yielding to the peer, self playing broadcast wins the view back to Local`() {
+        val h = harness()
+        h.engine.publishSelf(selfBroadcast(P2pPlaybackStatus.PLAYING, "pb-self-a"))
+        h.engine.publishSelf(selfBroadcast(P2pPlaybackStatus.PAUSED, "pb-self-a"))
+        h.engine.onPeerStateUpdateForTest(PEER_ID, PEER_NAME, peerBroadcast(P2pPlaybackStatus.PLAYING))
+        assertTrue(h.sessionStateHolder.state.value.source is SessionSource.Remote)
+
+        h.engine.publishSelf(selfBroadcast(P2pPlaybackStatus.PLAYING, "pb-self-b"))
+
+        val source = h.sessionStateHolder.state.value.source
+        assertTrue(source is SessionSource.Local, "self playing must always win the view back, was $source")
+        assertEquals(SELF_HASH, (source as SessionSource.Local).stint.trackHash)
+    }
+
 }

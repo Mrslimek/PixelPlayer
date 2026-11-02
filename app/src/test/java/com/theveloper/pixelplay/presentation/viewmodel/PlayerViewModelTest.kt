@@ -322,7 +322,8 @@ class PlayerViewModelTest {
             mockMediaControllerFactory,
             mockSessionTransportRouter,
             mockSessionStateHolder,
-            mockPeerProtocolEngine
+            mockPeerProtocolEngine,
+            mockk<com.theveloper.pixelplay.data.p2p.MusicLibraryHashIndex>(relaxed = true)
         )
     }
 

@@ -221,6 +221,7 @@ class PlayerViewModel @Inject constructor(
     private val sessionTransportRouter: com.theveloper.pixelplay.data.p2p.SessionTransportRouter,
     private val sessionStateHolder: com.theveloper.pixelplay.data.p2p.SessionStateHolder,
     private val peerProtocolEngine: com.theveloper.pixelplay.data.p2p.PeerProtocolEngine,
+    private val musicLibraryHashIndex: com.theveloper.pixelplay.data.p2p.MusicLibraryHashIndex,
 ) : ViewModel() {
 
     private val _playerUiState = MutableStateFlow(PlayerUiState())
@@ -2520,6 +2521,57 @@ class PlayerViewModel @Inject constructor(
             viewModelScope.launch { peerProtocolEngine.playHere(peerId) }
         }
     }
+
+    // Presentation-only display-source swap (contract section 8): while a peer holds the
+    // stint, the player surface renders the RESOLVED LOCAL song + the stint's state. This
+    // never writes playbackStateHolder — MusicService/MediaSession stay local-only.
+    private val sessionDisplaySource = SessionDisplaySource { trackHash ->
+        musicLibraryHashIndex.songForHash(trackHash)
+    }
+
+    /** The song the player surface renders: the remote stint's locally resolved Song, or the local current song. */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val displaySong: StateFlow<Song?> = sessionStateHolder.state
+        .map { sessionDisplaySource.requestFor(it.source) }
+        .distinctUntilChanged()
+        .flatMapLatest { request ->
+            if (request.sessionKey == null) {
+                stablePlayerState.map { it.currentSong }
+            } else {
+                kotlinx.coroutines.flow.flow {
+                    emit(sessionDisplaySource.resolveSong(request, stablePlayerState.value.currentSong))
+                }
+            }
+        }
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            stablePlayerState.value.currentSong,
+        )
+
+    /** Play state the surface renders: the stint's status while remote, local state otherwise. */
+    val displayIsPlaying: StateFlow<Boolean> = combine(
+        sessionStateHolder.state,
+        stablePlayerState,
+    ) { session, local ->
+        sessionDisplaySource.isPlaying(session.source, local.isPlaying)
+    }
+        .distinctUntilChanged()
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            stablePlayerState.value.isPlaying,
+        )
+
+    /** True while the surface represents a remote stint (any reachability) or a takeover in flight. */
+    val sessionActive: StateFlow<Boolean> = sessionStateHolder.state
+        .map { sessionDisplaySource.isSessionActive(it.source) }
+        .distinctUntilChanged()
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            false,
+        )
 
     private fun startProgressUpdates() {
         playbackStateHolder.startProgressUpdates()

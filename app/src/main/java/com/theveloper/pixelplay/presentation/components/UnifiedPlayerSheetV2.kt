@@ -182,10 +182,17 @@ fun UnifiedPlayerSheetV2(
     val currentPositionState = playerViewModel.currentPlaybackPosition.collectAsStateWithLifecycle()
     val remotePositionState = playerViewModel.remotePosition.collectAsStateWithLifecycle()
     val isRemotePlaybackActive by playerViewModel.isRemotePlaybackActive.collectAsStateWithLifecycle()
-    val positionToDisplayProvider = remember(isRemotePlaybackActive) {
+    // Shared-session display source: while a peer holds the stint, the surface shows the
+    // dead-reckoned session position; otherwise the Cast/local logic unchanged.
+    val isSessionActive by playerViewModel.sessionActive.collectAsStateWithLifecycle()
+    val sessionPositionState = playerViewModel.sessionPositionEstimateMs.collectAsStateWithLifecycle()
+    val positionToDisplayProvider = remember(isRemotePlaybackActive, isSessionActive) {
         {
-            if (isRemotePlaybackActive) remotePositionState.value
-            else currentPositionState.value
+            when {
+                isSessionActive -> sessionPositionState.value ?: 0L
+                isRemotePlaybackActive -> remotePositionState.value
+                else -> currentPositionState.value
+            }
         }
     }
 

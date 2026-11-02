@@ -675,7 +675,25 @@ class PeerProtocolEngine @Inject constructor(
         sessionStateHolder.update { state ->
             when (val current = state.source) {
                 is SessionSource.TakeoverInFlight -> state // self's playing broadcast resolves it
-                is SessionSource.Local -> state // self owns the view; conflicts surface via the banner
+                is SessionSource.Local ->
+                    if (current.stint.status == P2pPlaybackStatus.PLAYING) {
+                        // Self is actively playing: the both-playing overlap surfaces via
+                        // evaluateSessionInvariant's conflict machinery, never here.
+                        state
+                    } else if (snapshot.status == P2pPlaybackStatus.PLAYING) {
+                        // Self's stint is paused/stopped: the actively playing peer's stint
+                        // IS the active session view (newest active stint wins).
+                        state.copy(
+                            source = SessionSource.Remote(
+                                peerId = peerId,
+                                peerName = peerName,
+                                reachability = SessionPeerReachability.CONNECTED,
+                                stint = stint,
+                            ),
+                        )
+                    } else {
+                        state // a paused peer never steals a paused local view either
+                    }
                 is SessionSource.Remote ->
                     if (current.peerId == peerId) {
                         // Same peer: refresh the stint (playing/paused) and mark reachable —
@@ -1298,6 +1316,20 @@ class PeerProtocolEngine @Inject constructor(
     internal fun onRawFrameForTest(peerKey: String, text: String) {
         val record = synchronized(lock) { peers[peerKey] } ?: return
         handleText(record, text)
+    }
+
+    /** Test-only: drives the section-8 peer state_update session-view path (the same
+     *  segment onStateUpdate runs after publish) without a registered socket peer. */
+    internal fun onPeerStateUpdateForTest(peerId: String?, peerName: String, snapshot: PeerPlaybackSnapshot) {
+        val record = PeerRecord(addrKey = peerId ?: peerName).apply {
+            id = peerId
+            name = peerName
+            state = P2pConnState.CONNECTED
+            lastPlayback = snapshot
+            if (snapshot.trackHash != null) sessionCapable = true
+        }
+        updateSessionViewFromPeer(record, snapshot)
+        evaluateSessionInvariant(now())
     }
 
     // ------------------------------------------------------------------ shared session (section 8)
