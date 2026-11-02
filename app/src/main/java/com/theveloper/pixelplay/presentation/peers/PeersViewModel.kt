@@ -3,7 +3,6 @@ package com.theveloper.pixelplay.presentation.peers
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.theveloper.pixelplay.data.p2p.PeerProtocolEngine.LocalIdentity
-import com.theveloper.pixelplay.shared.p2p.P2pCommandAction
 import com.theveloper.pixelplay.data.p2p.P2pConnState
 import com.theveloper.pixelplay.data.p2p.PeerProtocolEngine
 import com.theveloper.pixelplay.data.p2p.PeerStateHolder
@@ -60,13 +59,7 @@ class PeersViewModel @Inject constructor(
         }
     }
 
-    /** Fire-and-forget remote playback command to one peer (contract section 6 `command`). */
-    fun sendCommand(peerKey: String, action: P2pCommandAction) {
-        peerProtocolEngine.sendCommand(peerKey, action)
-    }
-
-    /** Shared-session takeover: resume the peer's stint here from the local file (section 8). */
-    fun playHere(peerKey: String) {
-        viewModelScope.launch { peerProtocolEngine.playHere(peerKey) }
-    }
+    // Per-peer transport controls were removed by product decision: the main player
+    // surface (session chip + transport) is the ONLY remote-control surface. The engine's
+    // INBOUND command path (the gate) is unaffected.
 }

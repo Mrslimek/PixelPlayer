@@ -16,10 +16,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.Pause
-import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.PlayCircle
-import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.Computer
 import androidx.compose.material.icons.rounded.Devices
@@ -30,8 +26,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
@@ -52,12 +46,10 @@ import java.util.Locale
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.theveloper.pixelplay.shared.p2p.P2pCommandAction
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.res.stringResource
 import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.data.p2p.P2pConnState
-import com.theveloper.pixelplay.shared.p2p.P2pPlaybackStatus
 import com.theveloper.pixelplay.data.p2p.PeerUiModel
 import com.theveloper.pixelplay.ui.theme.GoogleSansRounded
 
@@ -157,11 +149,7 @@ fun PeersScreen(
                     modifier = Modifier.fillMaxSize(),
                 ) {
                     items(peers, key = { it.key }) { peer ->
-                        PeerCard(
-                            peer = peer,
-                            onCommand = viewModel::sendCommand,
-                            onPlayHere = viewModel::playHere,
-                        )
+                        PeerCard(peer = peer)
                     }
                 }
             }
@@ -217,11 +205,7 @@ private fun PresenceCard(
 }
 
 @Composable
-private fun PeerCard(
-    peer: PeerUiModel,
-    onCommand: (String, P2pCommandAction) -> Unit,
-    onPlayHere: (String) -> Unit,
-) {
+private fun PeerCard(peer: PeerUiModel) {
     val stateColor = when (peer.connectionState) {
         P2pConnState.CONNECTED -> MaterialTheme.colorScheme.primary
         P2pConnState.CONNECTING, P2pConnState.RECONNECTING -> MaterialTheme.colorScheme.tertiary
@@ -293,55 +277,7 @@ private fun PeerCard(
                     modifier = Modifier.weight(1f),
                 )
             }
-            // Remote playback control (contract section 6 command): fire-and-forget buttons
-            // for connected peers only.
-            if (peer.connectionState == P2pConnState.CONNECTED) {
-                Spacer(Modifier.height(8.dp))
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    CommandButton("Play", Icons.Rounded.PlayArrow) {
-                        onCommand(peer.key, P2pCommandAction.PLAY)
-                    }
-                    CommandButton("Pause", Icons.Rounded.Pause) {
-                        onCommand(peer.key, P2pCommandAction.PAUSE)
-                    }
-                    CommandButton("Stop", Icons.Rounded.Stop) {
-                        onCommand(peer.key, P2pCommandAction.STOP)
-                    }
-                }
-            }
-            // Shared-session takeover (contract section 8): the peer holds the active stint.
-            val active = peer.playback != null &&
-                peer.playback.trackHash != null &&
-                peer.playback.status == P2pPlaybackStatus.PLAYING
-            if (active && peer.connectionState == P2pConnState.CONNECTED) {
-                Spacer(Modifier.height(8.dp))
-                AssistChip(
-                    onClick = { onPlayHere(peer.key) },
-                    label = { Text(stringResource(R.string.p2p_play_here)) },
-                    leadingIcon = {
-                        Icon(
-                            Icons.Rounded.PlayCircle,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                        )
-                    },
-                )
-            }
         }
-    }
-}
-
-@Composable
-private fun CommandButton(
-    label: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    onClick: () -> Unit,
-) {
-    FilledIconButton(onClick = onClick, modifier = Modifier.size(40.dp)) {
-        Icon(icon, contentDescription = label, modifier = Modifier.size(20.dp))
     }
 }
 
